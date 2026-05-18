@@ -243,9 +243,24 @@ st.caption(
 
 # ─── SA fund PnL minus SMH exposure ──────────────────────────────────────────
 st.subheader(f"SA fund PnL minus its SMH exposure (β = {beta:.2f})")
+
 salp_cum = bench["salp_cum"].to_numpy()
 smh_cum = bench["smh_cum"].to_numpy()
 diff_cum = salp_cum - beta * smh_cum
+
+# Daily residual return series (beta-hedged). Sharpe / ann.return / ann.vol
+# computed on this daily series — what you'd get from a beta-neutral version
+# of the strategy (short β×SMH against long SA).
+resid_daily = _s - beta * _m
+resid_sharpe = float(_np.mean(resid_daily) / _np.std(resid_daily, ddof=1) * (252 ** 0.5))
+resid_ann_ret = float(_np.mean(resid_daily) * 252)
+resid_ann_vol = float(_np.std(resid_daily, ddof=1) * (252 ** 0.5))
+
+r1, r2, r3, r4 = st.columns(4)
+r1.metric("Cumulative", f"{float(diff_cum[-1])*100:+.1f}%")
+r2.metric("Annualised return", f"{resid_ann_ret*100:+.1f}%")
+r3.metric("Annualised vol", f"{resid_ann_vol*100:.1f}%")
+r4.metric("Sharpe (rf=0)", f"{resid_sharpe:+.2f}")
 
 dfig = go.Figure()
 dfig.add_trace(go.Scatter(
@@ -261,9 +276,9 @@ dfig.update_layout(
 )
 st.plotly_chart(dfig, use_container_width=True)
 st.caption(
-    f"Cumulative SA-fund return curve minus β×(cumulative SMH return). "
-    f"What's left of SALP after subtracting the part that's just market "
-    f"exposure to SMH. Final value: **{float(diff_cum[-1])*100:+.1f}%**."
+    "Cumulative SA-fund return minus β × (cumulative SMH return). "
+    "Sharpe / ann.return / ann.vol are computed on the **daily residual** "
+    "`r_SA − β·r_SMH` (the daily PnL of a beta-neutral version)."
 )
 
 # ─── Ticker attribution ──────────────────────────────────────────────────────

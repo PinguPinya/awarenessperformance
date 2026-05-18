@@ -44,7 +44,7 @@ MODE_EWVOL = "Equal-weight, 30d vol-targeted (commons only)"
 _modes = [MODE_HALF, MODE_COMMONS, MODE_COPYCAT, MODE_BLENDED, MODE_EWVOL]
 mode = st.radio(
     "Position handling", _modes, horizontal=True,
-    index=_modes.index(MODE_BLENDED),
+    index=_modes.index(MODE_COMMONS),
 )
 is_ew = mode == MODE_EWVOL
 is_copycat = mode == MODE_COPYCAT

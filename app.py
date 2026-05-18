@@ -21,7 +21,12 @@ from src.pnl import (
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
-st.set_page_config(page_title="Situational Awareness LP — 13F PnL", layout="wide")
+SA_ICON = str(Path(__file__).resolve().parent / "assets" / "sa_icon_light.svg")
+st.set_page_config(
+    page_title="Situational Awareness LP — 13F PnL",
+    page_icon=SA_ICON,
+    layout="wide",
+)
 st.title("Situational Awareness LP — 13F-based PnL")
 st.caption(
     "Daily return = shares × Δ adjusted-close (Yahoo Finance). "

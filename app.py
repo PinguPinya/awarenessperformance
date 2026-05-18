@@ -185,42 +185,30 @@ smh_vol = float(smh_r.std()) * (252 ** 0.5)
 salp_ann = float(salp_r.mean()) * 252
 smh_ann = float(smh_r.mean()) * 252
 
-# Correlation + beta + alpha
+# Correlation + beta
 import numpy as _np
 _s = _np.asarray(salp_r.to_list(), dtype=float)
 _m = _np.asarray(smh_r.to_list(), dtype=float)
 corr = float(_np.corrcoef(_s, _m)[0, 1])
 beta = float(_np.cov(_s, _m, ddof=1)[0, 1] / _np.var(_m, ddof=1))
-alpha_daily = _s - beta * _m
-alpha_cum = (1.0 + _np.nan_to_num(alpha_daily, nan=0.0)).cumprod() - 1.0
-alpha_final = float(alpha_cum[-1])
-alpha_ann = float(alpha_daily.mean() * 252)
-alpha_vol = float(alpha_daily.std() * (252 ** 0.5))
 
-m1, m2, m3, m4 = st.columns(4)
+m1, m2, m3, m4, m5, m6 = st.columns(6)
 m1.metric("SALP Sharpe", f"{salp_sharpe:.2f}",
           delta=f"{salp_sharpe - smh_sharpe:+.2f} vs SMH")
 m2.metric("SMH Sharpe", f"{smh_sharpe:.2f}")
 m3.metric("SALP ann.vol / return", f"{salp_vol*100:.1f}% / {salp_ann*100:.1f}%")
 m4.metric("SMH ann.vol / return", f"{smh_vol*100:.1f}% / {smh_ann*100:.1f}%")
-
-a1, a2, a3, a4 = st.columns(4)
-a1.metric("Correlation to SMH", f"{corr:+.2f}")
-a2.metric("Beta to SMH", f"{beta:+.2f}")
-a3.metric("Cum alpha (beta-hedged)", f"{alpha_final * 100:+.1f}%")
-a4.metric("Annualised alpha / vol", f"{alpha_ann*100:+.1f}% / {alpha_vol*100:.1f}%")
+m5.metric("Correlation to SMH", f"{corr:+.2f}")
+m6.metric("Beta to SMH", f"{beta:+.2f}")
 
 smh_scaled = scale_to_vol(smh_r, float(salp_r.std()))
 bench = bench.with_columns([
     ((salp_r.fill_null(0.0) + 1.0).cum_prod() - 1.0).alias("salp_cum"),
     ((smh_r.fill_null(0.0) + 1.0).cum_prod() - 1.0).alias("smh_cum"),
     ((smh_scaled.fill_null(0.0) + 1.0).cum_prod() - 1.0).alias("smh_scaled_cum"),
-    pl.Series("alpha_cum", alpha_cum),
 ])
 
-c1, c2 = st.columns(2)
-show_raw_smh = c1.checkbox("Show raw (unscaled) SMH", value=True)
-show_alpha = c2.checkbox(f"Show beta-hedged alpha curve (β={beta:.2f})", value=True)
+show_raw_smh = st.checkbox("Show raw (unscaled) SMH", value=True)
 
 bfig = go.Figure()
 bfig.add_trace(go.Scatter(
@@ -240,12 +228,6 @@ if show_raw_smh:
         line=dict(color="#ff7f0e", width=1.2, dash="dot"),
         opacity=0.6,
     ))
-if show_alpha:
-    bfig.add_trace(go.Scatter(
-        x=bench["date"], y=bench["alpha_cum"] * 100,
-        name=f"Alpha = SALP − β×SMH (β={beta:.2f})",
-        line=dict(color="#2ca02c", width=2, dash="dash"),
-    ))
 bfig.update_layout(
     height=480, yaxis_title="Cumulative return (%)",
     hovermode="x unified", margin=dict(t=20, b=40),
@@ -256,9 +238,32 @@ st.plotly_chart(bfig, use_container_width=True)
 st.caption(
     f"Vol-matching multiplies SMH daily returns by **{salp_vol/smh_vol:.2f}× "
     f"(={salp_vol*100:.1f}% / {smh_vol*100:.1f}%)** so both series have "
-    f"the same realised volatility. Alpha is the residual after hedging out "
-    f"β×SMH each day, then geometrically chained — what's left of the "
-    f"strategy's PnL once the market component is removed."
+    f"the same realised volatility."
+)
+
+# ─── SA fund PnL minus SMH exposure ──────────────────────────────────────────
+st.subheader(f"SA fund PnL minus its SMH exposure (β = {beta:.2f})")
+salp_cum = bench["salp_cum"].to_numpy()
+smh_cum = bench["smh_cum"].to_numpy()
+diff_cum = salp_cum - beta * smh_cum
+
+dfig = go.Figure()
+dfig.add_trace(go.Scatter(
+    x=bench["date"], y=diff_cum * 100,
+    mode="lines", line=dict(color="#2ca02c", width=2),
+    name="SA PnL − β × SMH", fill="tozeroy",
+    fillcolor="rgba(44,160,44,0.12)",
+))
+dfig.update_layout(
+    height=420, yaxis_title="Cumulative return (%)",
+    margin=dict(t=20, b=30),
+    showlegend=False,
+)
+st.plotly_chart(dfig, use_container_width=True)
+st.caption(
+    f"Cumulative SA-fund return curve minus β×(cumulative SMH return). "
+    f"What's left of SALP after subtracting the part that's just market "
+    f"exposure to SMH. Final value: **{float(diff_cum[-1])*100:+.1f}%**."
 )
 
 # ─── Ticker attribution ──────────────────────────────────────────────────────

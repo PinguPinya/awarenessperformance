@@ -429,6 +429,95 @@ def build_ew_voltargeted_pnl(
     return daily
 
 
+def per_ticker_contribution(
+    option_delta: float = 1.0,
+    use_filing_date: bool = False,
+    blended: bool = False,
+) -> pl.DataFrame:
+    """Each ticker's contribution to the portfolio's cumulative return.
+
+    Per day, ticker contributes `pnl_ticker_usd / portfolio_notional_for_that_day`
+    to the portfolio return. Summed across all days = ticker's arithmetic
+    contribution to the cumulative (arithmetic-sum) portfolio return.
+    """
+    holdings = signed_shares(load_holdings_with_tickers(option_delta))
+    prices = (
+        pl.read_parquet(DATA_DIR / "prices.parquet")
+        .sort("ticker", "date")
+        .with_columns(pl.col("adj_close").diff().over("ticker").alias("d_price"))
+    )
+
+    if blended:
+        pos = _blended_position_windows(
+            holdings.select("period", "ticker", "signed_shares")
+        )
+    else:
+        pos = (
+            _position_windows(
+                holdings.select("period", "ticker", "signed_shares", "filing_date"),
+                use_filing_date=use_filing_date,
+            )
+            .select("ticker", "effective_from", "effective_until", "signed_shares")
+        )
+
+    # Per-period notional, matching build_pnl's logic
+    notional_col = "gross_value" if "gross_value" in holdings.columns else "value"
+    period_notional = (
+        holdings.group_by("period")
+        .agg(
+            pl.col(notional_col).abs().sum().alias("notional_usd"),
+            pl.col("filing_date").first().alias("filing_date"),
+        )
+        .sort("period")
+    )
+    if blended:
+        import datetime as _dt
+        pn = period_notional.sort("period")
+        n_vals = pn["notional_usd"].to_list()
+        p_vals = pn["period"].to_list()
+        rows = []
+        for i in range(len(p_vals) - 1):
+            rows.append({"effective_from": p_vals[i] + _dt.timedelta(days=1),
+                         "notional_usd": 0.5 * (n_vals[i] + n_vals[i + 1])})
+        rows.append({"effective_from": p_vals[-1] + _dt.timedelta(days=1),
+                     "notional_usd": n_vals[-1]})
+        period_notional = pl.DataFrame(rows)
+    elif use_filing_date:
+        period_notional = period_notional.with_columns(
+            (pl.col("filing_date").str.to_date() + pl.duration(days=1))
+            .alias("effective_from")
+        )
+    else:
+        period_notional = period_notional.with_columns(
+            (pl.col("period") + pl.duration(days=1)).alias("effective_from")
+        )
+
+    px = (
+        prices.join(pos, on="ticker", how="left")
+        .filter(
+            (pl.col("date") >= pl.col("effective_from"))
+            & (pl.col("date") < pl.col("effective_until"))
+        )
+        .with_columns((pl.col("signed_shares") * pl.col("d_price")).alias("pnl_usd"))
+        .sort("date")
+        .join_asof(
+            period_notional.select("effective_from", "notional_usd").sort("effective_from"),
+            left_on="date", right_on="effective_from", strategy="backward",
+        )
+        .with_columns(
+            (pl.col("pnl_usd") / pl.col("notional_usd")).alias("ret_contrib")
+        )
+    )
+    return (
+        px.group_by("ticker")
+        .agg(
+            pl.col("pnl_usd").sum().alias("total_pnl_usd"),
+            pl.col("ret_contrib").sum().alias("contribution_pct"),
+        )
+        .sort("contribution_pct", descending=True)
+    )
+
+
 def per_ticker_pnl(option_delta: float = 1.0) -> pl.DataFrame:
     """Cumulative PnL by ticker for attribution."""
     holdings = signed_shares(load_holdings_with_tickers(option_delta))

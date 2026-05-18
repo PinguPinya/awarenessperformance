@@ -12,7 +12,7 @@ from src.pnl import (
     build_ew_voltargeted_pnl,
     build_pnl,
     load_holdings_with_tickers,
-    per_ticker_pnl,
+    per_ticker_contribution,
     scale_to_vol,
     sharpe,
     signed_shares,
@@ -104,11 +104,15 @@ def _holdings(option_delta: float) -> pl.DataFrame:
     return signed_shares(load_holdings_with_tickers(option_delta=option_delta))
 
 @st.cache_data
-def _per_ticker(option_delta: float) -> pl.DataFrame:
-    return per_ticker_pnl(option_delta=option_delta)
+def _per_ticker(option_delta: float, use_filing_date: bool, blended: bool) -> pl.DataFrame:
+    return per_ticker_contribution(
+        option_delta=option_delta,
+        use_filing_date=use_filing_date,
+        blended=blended,
+    )
 
 holdings = _holdings(option_delta)
-per_tk = _per_ticker(option_delta)
+per_tk = _per_ticker(option_delta, is_copycat, is_blended)
 if is_ew:
     daily = _daily_ew()
 else:
@@ -120,17 +124,15 @@ else:
 final_pct = float(daily["cum_return_pct"][-1])
 start_date = daily["date"].min()
 end_date = daily["date"].max()
-peak_dd = float((daily["cum_return_pct"] - daily["cum_return_pct"].cum_max()).min())
 ann_vol = float(daily["daily_return"].std()) * (252 ** 0.5)
 ann_ret = float(daily["daily_return"].mean()) * 252
 sh = sharpe(daily["daily_return"], rf_annual=0.0)
 
-c1, c2, c3, c4, c5 = st.columns(5)
+c1, c2, c3, c4 = st.columns(4)
 c1.metric("Time-weighted return", f"{final_pct * 100:.1f}%")
 c2.metric("Annualised return", f"{ann_ret * 100:.1f}%")
 c3.metric("Annualised vol", f"{ann_vol * 100:.1f}%")
 c4.metric("Sharpe (rf=0)", f"{sh:.2f}")
-c5.metric("Max drawdown", f"{peak_dd * 100:.1f}%")
 
 # ─── Return curve ────────────────────────────────────────────────────────────
 fig = go.Figure()
@@ -288,18 +290,28 @@ st.caption(
 
 # ─── Ticker attribution ──────────────────────────────────────────────────────
 if not is_ew:
-    st.subheader("Per-ticker $-PnL attribution")
+    st.subheader("Per-ticker contribution to fund return (%)")
     bar = go.Figure(go.Bar(
         x=per_tk["ticker"],
-        y=per_tk["total_pnl_usd"] / 1e6,
+        y=per_tk["contribution_pct"] * 100,
         marker_color=[
             "#2ca02c" if v >= 0 else "#d62728"
-            for v in per_tk["total_pnl_usd"]
+            for v in per_tk["contribution_pct"]
         ],
+        text=[f"{v*100:+.1f}%" for v in per_tk["contribution_pct"]],
+        textposition="outside",
     ))
-    bar.update_layout(height=400, yaxis_title="Total PnL ($M)",
-                      margin=dict(t=20, b=40))
+    bar.update_layout(
+        height=420, yaxis_title="Contribution (%)",
+        margin=dict(t=20, b=40), xaxis=dict(tickangle=-45),
+    )
     st.plotly_chart(bar, use_container_width=True)
+    st.caption(
+        f"Each ticker's arithmetic contribution to the cumulative portfolio "
+        f"return — `Σ(ticker_pnl_t / portfolio_notional_t)`. Sum = "
+        f"**{float(per_tk['contribution_pct'].sum())*100:+.1f}%** (≠ TWR "
+        f"because compounding can't be cleanly attributed)."
+    )
 
 # ─── Reported holdings — single bar chart, commons only ─────────────────────
 st.subheader("Reported holdings — common shares only ($ notional)")

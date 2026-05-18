@@ -36,10 +36,10 @@ MODE_COPYCAT = "Copy-trade commons — filing date (realistic)"
 MODE_BLENDED = "Commons blended (50/50 between two snapshots)"
 MODE_EWVOL = "Equal-weight, 30d vol-targeted (commons only)"
 
+_modes = [MODE_HALF, MODE_COMMONS, MODE_COPYCAT, MODE_BLENDED, MODE_EWVOL]
 mode = st.radio(
-    "Position handling",
-    [MODE_HALF, MODE_COMMONS, MODE_COPYCAT, MODE_BLENDED, MODE_EWVOL],
-    horizontal=True,
+    "Position handling", _modes, horizontal=True,
+    index=_modes.index(MODE_BLENDED),
 )
 is_ew = mode == MODE_EWVOL
 is_copycat = mode == MODE_COPYCAT
